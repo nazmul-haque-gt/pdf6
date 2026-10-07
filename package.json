@@ -1,0 +1,13 @@
+{
+  "name": "pdf-editor-app",
+  "version": "1.0.0",
+  "description": "PDF Editor - Android app",
+  "scripts": { "sync": "cap sync android" },
+  "dependencies": {
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/filesystem": "^6.0.1",
+    "@capacitor/share": "^6.0.2"
+  },
+  "devDependencies": { "@capacitor/cli": "^6.1.2" }
+}
