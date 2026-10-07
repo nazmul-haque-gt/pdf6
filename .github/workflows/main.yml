@@ -1,0 +1,77 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Prepare web assets (works even if the www folder was not uploaded)
+        run: |
+          mkdir -p www
+          if [ ! -f www/index.html ]; then
+            SRC=$(find . -path ./node_modules -prune -o -type f \( -name index.html -o -name final.html \) -print | grep -v '^./android' | head -1)
+            echo "www/index.html missing, using: $SRC"
+            if [ -z "$SRC" ]; then echo "No index.html or final.html found in the repo. Upload the www folder."; ls -R . | head -50; exit 1; fi
+            cp "$SRC" www/index.html
+          fi
+          for f in icon-192.png icon-512.png; do
+            if [ ! -f "www/$f" ]; then F=$(find . -path ./node_modules -prune -o -name "$f" -print | head -1); [ -n "$F" ] && cp "$F" "www/$f" || true; fi
+          done
+          ls -la www
+
+      - name: Install npm dependencies
+        run: npm install
+
+      - name: Bundle PDF libraries locally (so the app works offline)
+        run: |
+          npm install --no-save pdfjs-dist@3.11.174 pdf-lib@1.17.1 tesseract.js@5.1.1
+          mkdir -p www/vendor/pdfjs www/vendor/pdflib www/vendor/tesseract
+          cp node_modules/pdfjs-dist/build/pdf.min.js node_modules/pdfjs-dist/build/pdf.worker.min.js www/vendor/pdfjs/
+          cp node_modules/pdf-lib/dist/pdf-lib.min.js www/vendor/pdflib/
+          cp node_modules/tesseract.js/dist/tesseract.min.js www/vendor/tesseract/
+
+      - name: Add Android platform
+        run: |
+          if [ ! -d "android" ]; then npx cap add android; fi
+
+      - name: Enable "Open with PDF Editor" (PDF intent filter + native handler)
+        run: |
+          python3 android-patch/patch_manifest.py
+          cp android-patch/MainActivity.java android/app/src/main/java/com/pdfeditor/app/MainActivity.java
+
+      - name: App icon
+        run: |
+          for d in mipmap-mdpi mipmap-hdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do
+            for f in ic_launcher.png ic_launcher_round.png ic_launcher_foreground.png; do
+              [ -f "android/app/src/main/res/$d/$f" ] && cp www/icon-192.png "android/app/src/main/res/$d/$f" || true
+            done
+          done
+          rm -f android/app/src/main/res/mipmap-anydpi-v26/ic_launcher*.xml || true
+
+      - name: Sync web assets
+        run: npx cap sync android
+
+      - name: Build debug APK
+        run: |
+          chmod +x android/gradlew
+          cd android && ./gradlew assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pdf-editor-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
